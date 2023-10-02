@@ -1,60 +1,49 @@
-// TO COMPILE: nvcc open-image.c -o (name of the executable) -ljpeg
-
+// TO COMPILE: nvcc half-resize.cu -o (name of the executable) -ljpeg
+#include "cuda_runtime.h"
+#include "device_launch_parameters.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <jpeglib.h>
 
-// Function to read a JPEG image and convert it to a pixel matrix
-int readJPEG(const char* filename, unsigned char** image_data, int* width, int* height, int *num_components) {
-    // Declare the JPEG decompression object
+__host__ int readJPEG(const char* filename, unsigned char** image_data, int* width, int* height, int *num_components) {
     struct jpeg_decompress_struct cinfo;
     struct jpeg_error_mgr jerr;
 
-    // Open the JPEG file
     FILE* infile = fopen(filename, "rb");
     if (!infile) {
         fprintf(stderr, "Error opening JPEG file.\n");
         return 1;
     }
 
-    // Initialize the JPEG decompression object error handler
     cinfo.err = jpeg_std_error(&jerr);
 
-    // Create the JPEG decompression object
     jpeg_create_decompress(&cinfo);
 
-    // Specify the source file
     jpeg_stdio_src(&cinfo, infile);
 
-    // Read header information from the JPEG file
     jpeg_read_header(&cinfo, TRUE);
 
-    // Start the decompression process
     jpeg_start_decompress(&cinfo);
 
-    // Allocate memory for the pixel data
     *width = cinfo.output_width;
     *height = cinfo.output_height;
     *num_components = cinfo.num_components;
     *image_data = (unsigned char*)malloc(*width * *height * *num_components);
 
-    // Read scanlines and fill the pixel matrix
     while (cinfo.output_scanline < cinfo.output_height) {
         unsigned char* row = *image_data + cinfo.output_scanline * *width * *num_components;
         jpeg_read_scanlines(&cinfo, &row, 1);
     }
 
-    // Finish the decompression process
     jpeg_finish_decompress(&cinfo);
 
-    // Clean up and release resources
     jpeg_destroy_decompress(&cinfo);
     fclose(infile);
 
     return 0;
 }
 
-void array2JPEG(const char *outputFileName, unsigned char *image_data, int width, int height, int num_components) {
+__host__ void array2JPEG(const char *outputFileName, unsigned char *image_data, int width, int height, int num_components) {
     struct jpeg_compress_struct cinfo;
     struct jpeg_error_mgr jerr;
 
@@ -78,7 +67,7 @@ void array2JPEG(const char *outputFileName, unsigned char *image_data, int width
 
     jpeg_start_compress(&cinfo, TRUE);
 
-    int row_stride = width * num_components; 
+    int row_stride = width * num_components;
     JSAMPROW row_pointer;
     while (cinfo.next_scanline < cinfo.image_height) {
         row_pointer = &image_data[cinfo.next_scanline * row_stride];
@@ -90,7 +79,34 @@ void array2JPEG(const char *outputFileName, unsigned char *image_data, int width
     fclose(outfile);
 }
 
-void rescale_output_array(unsigned char *rescaled_output, unsigned char* output_image, int width, int height, int num_components){
+__global__ void GPU_half_resize(unsigned char *d_pin, unsigned char *d_pout, int width, int height, int num_components){
+    int row = threadIdx.y + blockIdx.y * blockDim.y;
+    int col = threadIdx.x + blockIdx.x * blockDim.x;
+    int pix_int;
+    unsigned char pix;
+    int i;
+
+    if(row < height && col < width){
+        for(i = 0; i < num_components; i++){
+            pix_int = 
+            d_pin[row*num_components*width + col*num_components + i] +
+            d_pin[(row-1)*num_components*width + col*num_components + i] +
+            d_pin[(row+1)*num_components*width + col*num_components + i] +
+            d_pin[row*num_components*width + (col-1)*num_components + i] +
+            d_pin[row*num_components*width + (col+1)*num_components + i] +
+            d_pin[(row-1)*num_components*width + (col-1)*num_components + i] +
+            d_pin[(row-1)*num_components*width + (col+1)*num_components + i] +
+            d_pin[(row+1)*num_components*width + (col+1)*num_components + i] +
+            d_pin[(row+1)*num_components*width + (col-1)*num_components + i];
+
+            pix_int =pix_int / 9;
+            pix = (unsigned char) pix_int;
+            d_pout[((row-1)/2 + 1)*num_components*width + ((col-1)/2 + 1)*num_components + i] = pix;
+        }
+    }
+}
+
+__host__ void rescale_output_array(unsigned char *rescaled_output, unsigned char* output_image, int width, int height, int num_components){
 
     /* the output_image is an array with dimension width * height * num_components, and the resized image lies 
      in the top left corner. We need to produce an image with dimensions (width/2)*(height/2).
@@ -106,46 +122,37 @@ void rescale_output_array(unsigned char *rescaled_output, unsigned char* output_
 
 }
 
+
+
 int main() {
 
     const char* filename = "JF.jpeg"; // Change to your JPEG file
-    const char *output_name = "JF(test).jpeg";
-    unsigned char* image_data, *output_image;
-    int width, height, num_components;
-
+    const char* output_name = "JF(test).jpeg";
+    unsigned char* image_data;
+    int width, height,num_components;
+    
+    
     if (readJPEG(filename, &image_data, &width, &height, &num_components) != 0) {
         fprintf(stderr, "Error reading JPEG image.\n");
         return 1;
     }
-            
-    int size = width * height * num_components;
-    output_image = (unsigned char*)malloc(size*sizeof(unsigned char));
+    unsigned char *d_pin, *d_pout;
+    int size = num_components * width * height;
+    unsigned char* output_image;
+    output_image = (unsigned char*)malloc(size);
 
-    int row,col,i;
-    int pix_int;
-    unsigned char pix;
-    for(row = 1; row < height-1; row = row + 3){
-        for(col = 1; col < width-1; col = col + 3){
-            for(i = 0; i < num_components; i++){
-                pix_int = 
-                image_data[row*num_components*width + col*num_components + i] +
-                image_data[(row-1)*num_components*width + col*num_components + i] +
-                image_data[(row+1)*num_components*width + col*num_components + i] +
-                image_data[row*num_components*width + (col-1)*num_components + i] +
-                image_data[row*num_components*width + (col+1)*num_components + i] +
-                image_data[(row-1)*num_components*width + (col-1)*num_components + i] +
-                image_data[(row-1)*num_components*width + (col+1)*num_components + i] +
-                image_data[(row+1)*num_components*width + (col+1)*num_components + i] +
-                image_data[(row+1)*num_components*width + (col-1)*num_components + i];
+    cudaMalloc((void**)&d_pin,size);
+    cudaMalloc((void**)&d_pout,size);
+    cudaMemcpy(d_pin, image_data, size, cudaMemcpyHostToDevice);
 
-                pix_int =pix_int / 9;
-                pix = (unsigned char) pix_int;
+    dim3 threadsPerBlock (16,16);
+    dim3 gridDim ((width-1)/16 + 1, (height-1)/16 + 1);
 
-                output_image[(row/2)*num_components*width + (col/2)*num_components + i] = pix;
+    GPU_half_resize<<<gridDim, threadsPerBlock>>>(d_pin, d_pout, width, height, num_components);
+    
+    cudaMemcpy(output_image,d_pout,size,cudaMemcpyDeviceToHost);
 
-            }
-        }
-    }
+    cudaDeviceSynchronize();
 
     unsigned char *rescaled_output;
     int output_size = (width/2) * (height/2) * num_components;
@@ -158,6 +165,8 @@ int main() {
     free(image_data);
     free(output_image);
     free(rescaled_output);
+    cudaFree(d_pin);
+    cudaFree(d_pout);
 
     return 0;
 }
