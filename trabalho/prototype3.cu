@@ -6,7 +6,7 @@
 #include <time.h>
 #include <string.h>
 
-#define TOTAL_SIZE 60000  // total dataset size
+#define TOTAL_SIZE 1000000  // total dataset size
 #define M 10000    // size of each step
 #define N 128      // dimension of each vector
 #define T 1000     // number of threads per block
@@ -200,9 +200,10 @@ __host__ int *simultaneous_k_smallest(float *vec, int *indexes, int n, int _k){
 int main(){
     clock_t start,end;
     start = clock();
+
     int data[M*N];
 
-    PGresult *res;
+    
     int query[N] = {1,3,11,110,62,22,4,0,43,21,22,18,6,28,64,9,11,1,0,0,1,40,101,21,20,2,4,2,2,9,18,35,1,1,7,25,108,116,63,2,0,0,11,74,40,101,116,3,33,1,1,11,14,18,116,116,68,12,5,4,2,2,9,102,17,3,10,18,8,15,67,63,15,0,14,116,80,0,2,22,96,37,28,88,43,1,4,18,116,51,5,11,32,14,8,23,44,17,12,9,0,0,19,37,85,18,16,104,22,6,2,26,12,58,67,82,25,12,2,2,25,18,8,2,19,42,48,11};
     int steps = TOTAL_SIZE / M;
     int numBlocks = ceil(M,T);
@@ -211,13 +212,15 @@ int main(){
     int indexes[k*numBlocks*steps];
 
     int data_size = M*N*sizeof(int);
+    int offset_int;
+
 
     /*connecting to DB*/
     char *conninfo = "hostaddr=127.0.0.1 user=postgres password=6wk48900 dbname=trabalho-bd-2";
     PGconn *conn = connect_to_db(conninfo);
-    
+
     for(int step = 0; step < steps; step++){
-        int offset_int = M * step;
+        offset_int = M * step;
         char offset[10];
         snprintf(offset,10,"%d",offset_int);
         char *base_string;
@@ -227,13 +230,17 @@ int main(){
         strcat(base_string," LIMIT 10000");
         printf("%s\n",base_string);
 
-
+        PGresult *res;
         res = PQexec(conn, base_string);
         for(int i = 0; i < M; i++){
             for(int j = 0; j < N; j++){
-                data[i*N + j] = string_vec2int_vec(PQgetvalue(res,i,1))[j];
+                int *vec = string_vec2int_vec(PQgetvalue(res,i,1));
+                data[i*N + j] = vec[j];
+                free(vec);
             }
         }
+        PQclear(res);
+
 
         int *d_query;
         int *d_data;
@@ -260,11 +267,9 @@ int main(){
         cudaFree(d_indexes);
 
         free(base_string);
-        
+
 
     }
-    
-    
     
     int *output;
     output = simultaneous_k_smallest(distances,indexes,k*numBlocks*steps,k);
@@ -281,7 +286,6 @@ int main(){
     printf("%f\n",duration);
     
     /*closing connection to DB*/
-    PQclear(res);
     PQfinish(conn);
 
     return 0;
