@@ -145,7 +145,7 @@ __device__ int *k_smallest_with_heap(float *vec,int n, int _k){
     return index_vec;
 }
 
-__global__ void compute_distances(int *d_data, int *d_query, float *d_distances_r, int *d_indexes,int _k){
+__global__ void compute_distances(int *d_data, int *d_query, float *d_distances_r, int *d_indexes,int _k, int step){
     int i = threadIdx.x + blockIdx.x * blockDim.x;
     int tid = threadIdx.x;
     int block_adj = blockIdx.x * _k;
@@ -165,7 +165,7 @@ __global__ void compute_distances(int *d_data, int *d_query, float *d_distances_
     if(tid == 0){
         int *index_vec = k_smallest_with_heap(thread_distances,T,_k);
         for(int j = 0; j < _k; j++){
-            d_indexes[block_adj + j] = index_vec[j] + blockDim.x*blockIdx.x;
+            d_indexes[block_adj + j] = index_vec[j] + blockDim.x*blockIdx.x + step*M;
             d_distances_r[block_adj+j] = thread_distances[index_vec[j]];
         }
     }
@@ -255,7 +255,7 @@ int main(){
         cudaMemcpy(d_query,&query,N*sizeof(int),cudaMemcpyHostToDevice);
 
         /*executing the kernel and returning the output to host*/
-        compute_distances<<<numBlocks,T>>>(d_data,d_query,d_distances_r,d_indexes,k);
+        compute_distances<<<numBlocks,T>>>(d_data,d_query,d_distances_r,d_indexes,k,step);
         cudaMemcpy(&(distances[step*k*numBlocks]),d_distances_r,k*numBlocks*sizeof(float),cudaMemcpyDeviceToHost);
         cudaMemcpy(&(indexes[step*k*numBlocks]), d_indexes, k*numBlocks*sizeof(int),cudaMemcpyDeviceToHost);
         cudaDeviceSynchronize();
@@ -273,6 +273,12 @@ int main(){
     
     int *output;
     output = simultaneous_k_smallest(distances,indexes,k*numBlocks*steps,k);
+
+
+    /*adjustment: the DB enumeration starts with 1*/
+    for(int i = 0; i < k; i++){
+        output[i]++;
+    }
 
     for(int i = 0; i < 10; i++){
         printf("%d--", output[i]);
