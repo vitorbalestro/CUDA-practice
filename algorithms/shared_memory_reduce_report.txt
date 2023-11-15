@@ -1,0 +1,11 @@
+Generating SQLite file /home/vitorbalestro/Projetos Git/CUDA-practice/algorithms/report6.sqlite from /home/vitorbalestro/Projetos Git/CUDA-practice/algorithms/report6.nsys-rep
+Processing [/home/vitorbalestro/Projetos Git/CUDA-practice/algorithms/report6.sqlite] with [/opt/nvidia/nsight-systems/2023.4.1/host-linux-x64/reports/cuda_gpu_trace.py]... 
+
+ ** CUDA GPU Trace (cuda_gpu_trace):
+
+ Start (ns)   Duration (ns)  CorrId  GrdX  GrdY  GrdZ  BlkX  BlkY  BlkZ  Reg/Trd  StcSMem (MB)  DymSMem (MB)  Bytes (MB)  Throughput (MB/s)  SrcMemKd  DstMemKd           Device           Ctx  Strm              Name            
+ -----------  -------------  ------  ----  ----  ----  ----  ----  ----  -------  ------------  ------------  ----------  -----------------  --------  --------  ------------------------  ---  ----  ----------------------------
+ 240.409.644            672     105                                                                           0,004       6095,237           Pageable  Device    NVIDIA GeForce MX350 (0)    1     7  [CUDA memcpy Host-to-Device]
+ 240.429.772          2.848     107     8     1     1   128     1     1       10  0,001         0,000                                                            NVIDIA GeForce MX350 (0)    1     7  shared_reduce(int *, int *) 
+ 240.437.964          1.184     108                                                                           0,000       27,027             Device    Pageable  NVIDIA GeForce MX350 (0)    1     7  [CUDA memcpy Device-to-Host]
+

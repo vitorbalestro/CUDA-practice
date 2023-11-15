@@ -22,9 +22,10 @@ __device__ int detectRange(int input){
 }
 
 __global__ void createHistogram(int *data, int *histogram, int data_size){
+    int index = threadIdx.x + blockDim.x*blockIdx.x;
+    int tid = threadIdx.x + blockDim.x * blockIdx.x;
 
     __shared__ int sub_histogram[N];
-    int tid = threadIdx.x + blockDim.x * blockIdx.x;
 
     atomicAdd(&sub_histogram[detectRange(data[tid])],1);
     __syncthreads();

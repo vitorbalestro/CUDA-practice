@@ -66,28 +66,6 @@ __host__ int ceil(int A, int B){
     return (A-1)/B + 1;
 }
 
-int *index_bubble_sort(float *vec, int size){
-    int *index_vec;
-    index_vec = (int *)malloc(size* sizeof(int));
-    for(int i = 0; i < size; i++){
-        index_vec[i] = i;
-    }
-    for(int i = 0; i < size-1; i++){
-        for(int j = i+1; j < size; j++){
-            if(vec[j] < vec[i]){
-                float temp = vec[j];
-                vec[j] = vec[i];
-                vec[i] = temp;
-                int temp_int = index_vec[j];
-                index_vec[j] = index_vec[i];
-                index_vec[i] = temp_int;
-            }
-        }
-    }
-    return index_vec;
-
-}
-
 __host__ __device__ int parent(int i){
     if(i > 0) return (i-1)/2;
     return -1;
@@ -267,7 +245,6 @@ int main(){
         cudaFree(d_indexes);
 
         free(base_string);
-
 
     }
     
