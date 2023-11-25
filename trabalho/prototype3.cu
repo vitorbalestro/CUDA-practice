@@ -5,6 +5,7 @@
 #include "/usr/include/postgresql/libpq-fe.h"
 #include <time.h>
 #include <string.h>
+#include <sys/time.h>
 
 #define TOTAL_SIZE 1000000  // total dataset size
 #define M 10000    // size of each step
@@ -48,6 +49,8 @@ int *string_vec2int_vec(char *vec){
         i++;
         ptr = strtok(NULL, token);
     }
+
+    free(ptr);
 
     return vec_int;
     
@@ -176,8 +179,19 @@ __host__ int *simultaneous_k_smallest(float *vec, int *indexes, int n, int _k){
 }
 
 int main(){
+
+    struct timeval startt, endt;
+    gettimeofday(&startt, NULL);
+
     clock_t start,end;
     start = clock();
+
+    cudaEvent_t startc, stopc;
+    cudaEventCreate(&startc);
+    cudaEventCreate(&stopc);
+
+    float elapsedTimec = 0;
+    float partialElapsedTimec;
 
     int data[M*N];
 
@@ -197,6 +211,10 @@ int main(){
     char *conninfo = "hostaddr=127.0.0.1 user=postgres password=6wk48900 dbname=trabalho-bd-2";
     PGconn *conn = connect_to_db(conninfo);
 
+    int *d_query;
+    cudaMalloc((void**)&d_query,N*sizeof(int));
+    cudaMemcpy(d_query,&query,N*sizeof(int),cudaMemcpyHostToDevice);
+
     for(int step = 0; step < steps; step++){
         offset_int = M * step;
         char offset[10];
@@ -207,30 +225,36 @@ int main(){
         strcat(base_string,offset);
         strcat(base_string," LIMIT 10000");
         printf("%s\n",base_string);
-
+        
         PGresult *res;
         res = PQexec(conn, base_string);
+
+    
         for(int i = 0; i < M; i++){
+            int *vec = string_vec2int_vec(PQgetvalue(res,i,1));
             for(int j = 0; j < N; j++){
-                int *vec = string_vec2int_vec(PQgetvalue(res,i,1));
+                
                 data[i*N + j] = vec[j];
-                free(vec);
+                
             }
+            free(vec);
         }
         PQclear(res);
 
 
-        int *d_query;
+        
         int *d_data;
         int *d_indexes;
         float *d_distances_r;
 
+        cudaEventRecord(startc, 0);
+
         cudaMalloc((void**)&d_data,data_size);
-        cudaMalloc((void**)&d_query,N*sizeof(int));
+       
         cudaMalloc((void**)&d_distances_r, k*numBlocks*sizeof(float));
         cudaMalloc((void**)&d_indexes,k*numBlocks*sizeof(int));
         cudaMemcpy(d_data,&data,data_size,cudaMemcpyHostToDevice);
-        cudaMemcpy(d_query,&query,N*sizeof(int),cudaMemcpyHostToDevice);
+        
 
         /*executing the kernel and returning the output to host*/
         compute_distances<<<numBlocks,T>>>(d_data,d_query,d_distances_r,d_indexes,k,step);
@@ -240,13 +264,20 @@ int main(){
 
         /*deallocating CUDA memory*/
         cudaFree(d_data);
-        cudaFree(d_query);
         cudaFree(d_distances_r);
         cudaFree(d_indexes);
+
+        cudaEventRecord(stopc, 0);
+        cudaEventSynchronize(stopc);
+
+        cudaEventElapsedTime(&partialElapsedTimec, startc, stopc);
+        elapsedTimec += partialElapsedTimec;
 
         free(base_string);
 
     }
+
+    cudaFree(d_query);
     
     int *output;
     output = simultaneous_k_smallest(distances,indexes,k*numBlocks*steps,k);
@@ -266,7 +297,13 @@ int main(){
 
     double duration = ((double)end-start)/CLOCKS_PER_SEC;
 
-    printf("%f\n",duration);
+    gettimeofday(&endt, NULL);
+
+    double total_taken = endt.tv_sec + endt.tv_usec / 1e6 - startt.tv_sec - startt.tv_usec / 1e6;
+
+    printf("CPU time: %f sec\n",duration);
+    printf("GPU time: %f sec\n", elapsedTimec / 1000);
+    printf("Total execution time: %f sec\n", total_taken);
     
     /*closing connection to DB*/
     PQfinish(conn);
