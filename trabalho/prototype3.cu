@@ -11,7 +11,7 @@
 #define M 10000    // size of each step
 #define N 128      // dimension of each vector
 #define T 1000     // number of threads per block
-#define k 10       // number of desired nearest neighbors
+#define k 100       // number of desired nearest neighbors
 
 PGconn *connect_to_db(char *conninfo){
     
@@ -284,12 +284,9 @@ int main(){
 
 
     /*adjustment: the DB enumeration starts with 1*/
-    for(int i = 0; i < k; i++){
-        output[i]++;
-    }
 
-    for(int i = 0; i < 10; i++){
-        printf("%d--", output[i]);
+    for(int i = 0; i < k; i++){
+        printf("%d--", ++output[i]);
     }
 
     printf("\n");
